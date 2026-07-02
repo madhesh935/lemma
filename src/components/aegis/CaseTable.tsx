@@ -1,6 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import { cases, type Severity } from "@/data/data";
-import { ChevronRight, ShieldAlert } from "lucide-react";
+import { ChevronRight, ShieldAlert, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { lemmaPods } from "@/lib/lemma/index";
+import type { Pod } from "@/types/lemma";
 
 const sevColor: Record<Severity, string> = {
   low:      "bg-success/15 text-success border-success/30",
@@ -10,11 +13,57 @@ const sevColor: Record<Severity, string> = {
 };
 
 export function CaseTable() {
+  const [pods, setPods] = useState<Pod[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    lemmaPods.list()
+      .then((r) => {
+        if (r.pods && r.pods.length > 0) {
+          setPods(r.pods);
+        } else {
+          setPods([]);
+        }
+      })
+      .catch(() => {
+        setPods([]);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, []);
+
+  // Use dynamic backend pods if available, fallback to mock data otherwise
+  const displayCases = pods.length > 0 
+    ? pods.map((p) => ({
+        id: p.pod_id,
+        fir: p.pod_key,
+        title: p.name,
+        district: p.district || "Chennai",
+        status: p.status === "active" ? "Active" : "Closed",
+        severity: (p.severity as Severity) || "medium",
+        aiConfidence: p.pod_id === "C-2041" ? 87 : 70, // contextual mock conf
+        flagged: p.severity === "critical" || p.severity === "high",
+        officer: p.investigators?.[0] || "Insp. R. Karthik",
+        type: "Homicide",
+      }))
+    : cases;
+
   return (
     <div className="glass overflow-hidden rounded-xl">
       <div className="flex items-center justify-between border-b border-border/40 px-4 py-3">
         <div className="text-[11px] uppercase tracking-widest text-muted-foreground">Active Investigations</div>
-        <div className="text-[10px] text-muted-foreground">{cases.length} cases · sortable</div>
+        <div className="text-[10px] text-muted-foreground flex items-center gap-2">
+          {loading ? (
+            <span className="flex items-center gap-1.5 text-xs text-[#00C8FF]">
+              <Loader2 className="w-3 h-3 animate-spin" /> Fetching Live API...
+            </span>
+          ) : pods.length > 0 ? (
+            <span className="text-[#00D084] font-semibold">● Live API connected ({displayCases.length} cases)</span>
+          ) : (
+            <span className="text-white/40">{displayCases.length} cases · offline mode</span>
+          )}
+        </div>
       </div>
       <table className="w-full text-sm">
         <thead className="text-left text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -23,7 +72,7 @@ export function CaseTable() {
           </tr>
         </thead>
         <tbody className="divide-y divide-border/40">
-          {cases.map((c) => (
+          {displayCases.map((c) => (
             <tr key={c.id} className="group transition hover:bg-primary/5">
               <td className="px-4 py-3">
                 <div className="flex items-center gap-2 font-medium">
@@ -35,7 +84,7 @@ export function CaseTable() {
               <td className="px-4 py-3 text-muted-foreground">{c.district}</td>
               <td className="px-4 py-3 text-muted-foreground">{c.type}</td>
               <td className="px-4 py-3">
-                <span className={`rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wider ${sevColor[c.severity]}`}>{c.severity}</span>
+                <span className={`rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wider ${sevColor[c.severity as Severity] || "border-white/10"}`}>{c.severity}</span>
               </td>
               <td className="px-4 py-3">
                 <div className="flex items-center gap-2">

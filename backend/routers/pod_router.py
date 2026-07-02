@@ -17,6 +17,33 @@ router = APIRouter(prefix="/pods", tags=["Investigation Pods"])
 # In-memory pod store (PostgreSQL in production)
 _POD_STORE: Dict[str, Dict] = {}
 
+def _pre_populate_default_pods():
+    default_cases = [
+        {"pod_id": "C-2041", "name": "Central Station Homicide", "severity": "critical", "district": "Chennai", "fir_number": "FIR/2025/CHN/00412", "pod_key": "C-2041"},
+        {"pod_id": "C-2042", "name": "Peelamedu Bank Heist", "severity": "high", "district": "Coimbatore", "fir_number": "FIR/2025/CBE/00231", "pod_key": "C-2042"},
+        {"pod_id": "C-2043", "name": "Vaigai River Body", "severity": "high", "district": "Madurai", "fir_number": "FIR/2025/MDU/00871", "pod_key": "C-2043"},
+        {"pod_id": "C-2044", "name": "Salem Highway Hit & Run", "severity": "medium", "district": "Salem", "fir_number": "FIR/2025/SLM/00120", "pod_key": "C-2044"},
+        {"pod_id": "C-2045", "name": "Trichy Market Stabbing", "severity": "high", "district": "Trichy", "fir_number": "FIR/2025/TRY/00094", "pod_key": "C-2045"},
+        {"pod_id": "C-2046", "name": "Tirunelveli Arson", "severity": "medium", "district": "Tirunelveli", "fir_number": "FIR/2025/TIR/00067", "pod_key": "C-2046"},
+        {"pod_id": "C-2047", "name": "Vellore Kidnapping", "severity": "critical", "district": "Vellore", "fir_number": "FIR/2025/VEL/00203", "pod_key": "C-2047"},
+        {"pod_id": "C-2048", "name": "Marina Beach Drowning", "severity": "low", "district": "Chennai", "fir_number": "FIR/2025/CHN/00418", "pod_key": "C-2048"},
+    ]
+    for c in default_cases:
+        pod = InvestigationPod(
+            pod_id=c["pod_id"],
+            pod_key=c["pod_key"],
+            name=c["name"],
+            description=f"AI-assisted forensic investigation for the {c['name']} case.",
+            severity=c["severity"],
+            district=c["district"],
+            fir_number=c["fir_number"],
+            investigators=["lead@aegis.gov"],
+        )
+        PodManager.register(pod)
+        _POD_STORE[c["pod_id"]] = pod.to_summary()
+
+_pre_populate_default_pods()
+
 
 class CreatePodRequest(BaseModel):
     name: str

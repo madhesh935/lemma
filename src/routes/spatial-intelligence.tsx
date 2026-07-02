@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import L from "leaflet";
 import { 
   Map as MapIcon, Navigation, Radio, Eye, AlertTriangle, Layers, Activity,
   Filter, Clock, ShieldAlert, Crosshair, ChevronRight, Play, Pause, FastForward,
@@ -57,106 +58,104 @@ const EVIDENCE_LAYERS = [
 ];
 
 function MapVisualization({ activeLayers }: { activeLayers: string[] }) {
-  const [selectedPoint, setSelectedPoint] = useState<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const markersRef = useRef<L.LayerGroup | null>(null);
+  const polylineRef = useRef<L.Polyline | null>(null);
 
-  const bounds = { minLat: 13.060, maxLat: 13.105, minLng: 80.235, maxLng: 80.290 };
-  const toCanvas = (lat: number, lng: number) => ({
-    x: ((lng - bounds.minLng) / (bounds.maxLng - bounds.minLng)) * 100,
-    y: (1 - (lat - bounds.minLat) / (bounds.maxLat - bounds.minLat)) * 100,
-  });
+  const center: [number, number] = [13.0827, 80.2707]; // Chennai Center
 
-  const visibleHotspots = MOCK_HOTSPOTS.filter(hs => activeLayers.includes(hs.type) || activeLayers.includes("all"));
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    // Initialize map
+    const map = L.map(containerRef.current, {
+      center: center,
+      zoom: 13,
+      zoomControl: false,
+      attributionControl: false,
+    });
+    mapRef.current = map;
+
+    // OSM standard tile layer (we will style it via CSS filters globally)
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+    }).addTo(map);
+
+    // Layer group for dynamic markers
+    const markersGroup = L.layerGroup().addTo(map);
+    markersRef.current = markersGroup;
+
+    // Polyline for movement path
+    const pathCoords = MOCK_MOVEMENT.map(p => [p.lat, p.lng] as [number, number]);
+    const polyline = L.polyline(pathCoords, {
+      color: "#00C8FF",
+      weight: 3,
+      opacity: 0.8,
+      dashArray: "8, 6",
+    }).addTo(map);
+    polylineRef.current = polyline;
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  // Update visible markers based on activeLayers
+  useEffect(() => {
+    const map = mapRef.current;
+    const markersGroup = markersRef.current;
+    if (!map || !markersGroup) return;
+
+    markersGroup.clearLayers();
+
+    const visibleHotspots = MOCK_HOTSPOTS.filter(
+      hs => activeLayers.includes(hs.type) || activeLayers.includes("all")
+    );
+
+    visibleHotspots.forEach(hs => {
+      const color = hs.type === "crime_scene" ? "#FF4D6D" : "#00C8FF";
+      
+      const m = L.circleMarker([hs.lat, hs.lng], {
+        radius: 8,
+        color: color,
+        fillColor: color,
+        fillOpacity: 0.6,
+        weight: 2,
+      }).addTo(markersGroup);
+
+      m.bindTooltip(
+        `<div style="color: #fff; background: #0D1528; border: 1px solid rgba(0,180,255,0.4); padding: 6px 10px; border-radius: 8px; font-size: 11px;">
+           <b style="color: ${color}">${hs.label}</b><br/>
+           <span style="opacity: 0.6; font-family: monospace;">LAT: ${hs.lat.toFixed(4)} LNG: ${hs.lng.toFixed(4)}</span>
+         </div>`,
+        { direction: "top", className: "custom-map-tooltip" }
+      );
+    });
+  }, [activeLayers]);
 
   return (
-    <div className="relative w-full h-full bg-[#070B17] rounded-[16px] overflow-hidden">
-      {/* Tactical Grid */}
-      <div className="absolute inset-0 opacity-10 pointer-events-none"
-           style={{
-             backgroundImage: "linear-gradient(rgba(0,183,255,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(0,183,255,0.3) 1px, transparent 1px)",
-             backgroundSize: "60px 60px",
-             backgroundPosition: "center center"
-           }} />
-
-      {/* Geofence Overlay (Simulated) */}
-      <div className="absolute left-[30%] top-[40%] w-[30%] h-[30%] rounded-full border border-red-500/30 bg-red-500/5 animate-pulse pointer-events-none" />
-
-      {/* Movement Path SVG */}
-      <svg className="absolute inset-0 w-full h-full pointer-events-none">
-        <defs>
-          <linearGradient id="pathGrad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="rgba(0,200,255,0.8)" />
-            <stop offset="50%" stopColor="rgba(168,85,247,0.8)" />
-            <stop offset="100%" stopColor="rgba(248,113,113,0.8)" />
-          </linearGradient>
-          <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feComposite in="SourceGraphic" in2="blur" operator="over" />
-          </filter>
-        </defs>
-        <motion.polyline
-          initial={{ pathLength: 0 }}
-          animate={{ pathLength: 1 }}
-          transition={{ duration: 2, ease: "easeInOut" }}
-          points={MOCK_MOVEMENT.map(p => {
-            const c = toCanvas(p.lat, p.lng);
-            return `${c.x}%,${c.y}%`;
-          }).join(" ")}
-          fill="none"
-          stroke="url(#pathGrad)"
-          strokeWidth="3"
-          strokeDasharray="8 4"
-          filter="url(#glow)"
-        />
-      </svg>
-
-      {/* Hotspots */}
-      {visibleHotspots.map((hs) => {
-        const pos = toCanvas(hs.lat, hs.lng);
-        const isSelected = selectedPoint === hs.id;
-        return (
-          <div
-            key={hs.id}
-            onClick={() => setSelectedPoint(isSelected ? null : hs.id)}
-            className="absolute cursor-pointer transform -translate-x-1/2 -translate-y-1/2 transition-all z-10"
-            style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
-          >
-            {/* Radar Sweep / Ping */}
-            <div className={`absolute inset-0 rounded-full animate-ping opacity-40 ${hs.type === "crime_scene" ? "bg-red-500" : "bg-[#00C8FF]"}`}
-                 style={{ width: hs.intensity * 40, height: hs.intensity * 40, margin: -(hs.intensity * 20 - 4) }} />
-            
-            {/* Core Dot */}
-            <div className={`w-3 h-3 rounded-full border-2 border-[#0D1528] shadow-[0_0_10px_rgba(255,255,255,0.3)] ${SOURCE_DOTS[hs.type] || "bg-white"}`} />
-            
-            {/* Tooltip */}
-            {isSelected && (
-              <motion.div 
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 whitespace-nowrap
-                           bg-[#0D1528]/95 backdrop-blur-md border border-[rgba(0,180,255,0.4)] text-white px-3 py-2 rounded-xl shadow-[0_0_15px_rgba(0,180,255,0.15)]"
-              >
-                <div className="text-sm font-bold mb-1">{hs.label}</div>
-                <div className="flex gap-3 text-[10px] text-[#00C8FF]/80 font-mono">
-                  <span>LAT: {hs.lat.toFixed(4)}</span>
-                  <span>LNG: {hs.lng.toFixed(4)}</span>
-                </div>
-              </motion.div>
-            )}
-          </div>
-        );
-      })}
+    <div className="relative w-full h-full rounded-[16px] overflow-hidden border border-[rgba(0,180,255,0.22)]">
+      <div ref={containerRef} className="w-full h-full min-h-[400px] z-0" />
 
       {/* Map UI Overlay Elements */}
-      <div className="absolute top-4 right-4 flex flex-col gap-2">
-        <div className="w-10 h-10 rounded-xl bg-[#0D1528]/80 backdrop-blur-md border border-white/10 flex items-center justify-center shadow-[0_0_10px_rgba(0,180,255,0.05)] cursor-pointer hover:bg-white/[0.05] transition-all group">
-          <Navigation className="w-4 h-4 text-[#00C8FF] group-hover:scale-110 transition-transform" style={{ transform: "rotate(-25deg)" }} />
-        </div>
-        <div className="w-10 h-10 rounded-xl bg-[#0D1528]/80 backdrop-blur-md border border-white/10 flex items-center justify-center shadow-[0_0_10px_rgba(0,180,255,0.05)] cursor-pointer hover:bg-white/[0.05] transition-all group">
-          <Crosshair className="w-4 h-4 text-[#00C8FF] group-hover:scale-110 transition-transform" />
-        </div>
+      <div className="absolute top-4 right-4 flex flex-col gap-2 z-[1000]">
+        <button 
+          onClick={() => mapRef.current?.zoomIn()}
+          className="w-10 h-10 rounded-xl bg-[#0D1528]/80 backdrop-blur-md border border-white/10 flex items-center justify-center shadow-[0_0_10px_rgba(0,180,255,0.05)] cursor-pointer hover:bg-white/[0.05] transition-all text-[#00C8FF] text-lg font-bold hover:scale-105"
+        >
+          +
+        </button>
+        <button 
+          onClick={() => mapRef.current?.zoomOut()}
+          className="w-10 h-10 rounded-xl bg-[#0D1528]/80 backdrop-blur-md border border-white/10 flex items-center justify-center shadow-[0_0_10px_rgba(0,180,255,0.05)] cursor-pointer hover:bg-white/[0.05] transition-all text-[#00C8FF] text-lg font-bold hover:scale-105"
+        >
+          -
+        </button>
       </div>
       
-      <div className="absolute bottom-4 left-4">
+      <div className="absolute bottom-4 left-4 z-[1000]">
         <div className="bg-[#0D1528]/80 backdrop-blur-md border border-white/10 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-[0_0_10px_rgba(0,180,255,0.05)]">
           <Radar className="w-3.5 h-3.5 text-[#00D084] animate-pulse" />
           <span className="text-[10px] font-mono font-semibold tracking-wider text-[#00D084]">SAT-LINK SECURE · 47.92 MS</span>
